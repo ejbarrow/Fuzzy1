@@ -1,0 +1,179 @@
+#define GYRO   IN_1
+#define LIGHT IN_2
+#define UpdatePeriod   10
+int offset ;
+int light_offset;
+int divisor;
+float angle;
+
+
+float getAngle(int offset){
+
+       int v,l;
+       float speed, angle;
+
+       v = SensorHTGyro(GYRO);
+       l = Sensor(LIGHT);
+       l=l-light_offset;
+
+        // Display Value of Gyro for debugging
+        TextOut(0, LCD_LINE1, "Value:     ");
+        NumOut(6*6, LCD_LINE1, v);
+
+        // Display Value of angle for debugging
+        TextOut(0, LCD_LINE2, "Light:     ");
+        NumOut(6*6, LCD_LINE2, l);
+
+        speed = v - offset;
+
+        if ((speed <6) && (speed >0)){   //account for gyro glitch
+            speed =0;
+        }
+        angle += speed / divisor;
+
+        // Display Value of speed for debugging
+        //TextOut(0, LCD_LINE2, "speed:     ");
+        //NumOut(6*6, LCD_LINE2, speed);
+
+        // Display Value of angle for debugging
+        TextOut(0, LCD_LINE3, "Angle:     ");
+        NumOut(6*6, LCD_LINE3, angle);
+        
+        
+        //************************************
+        // Account for GYRO Drift
+        
+        if( (l > 10) && (angle<3)) angle+=0.5;
+        if( (l < -10) && (angle<3)) angle-=0.5;
+        //************************************
+        
+      return angle;
+}
+
+int getOffset()
+{
+  // *********************************************************************************************
+ //http://www.techbricks.nl/My-NXT-projects/nxt-self-balancing-segway-nxtway-robot.html
+ float timer,sum,sum2;
+ int v,l;
+ int count;
+ timer = CurrentTick();                 //set timer1 equal to the system clock tick.
+ count = 0;
+ while (CurrentTick() < (3000+timer)) { //loop until 3000 ms have past.
+     v = SensorHTGyro(GYRO);         //read out the Gyro sensor on port 3#.
+     l = Sensor(LIGHT);
+     Wait(150);
+     count  += 1;  //count the times a sample is made.
+     sum += v;               //sum the Gyro values.
+     sum2+=l;
+     PlayTone(TONE_B7, 5);               //play a sound to give notice of Gyro Bias process.
+     }
+ offset = (sum / count);
+ light_offset = (sum2 / count);
+
+ return offset;
+ // *********************************************************************************************
+}
+
+float FuzzyLogic(int offset){
+
+ //Get Angle
+ angle = getAngle(offset);
+ float degrees = angle;
+ 
+ //fuzzify
+ float forwards, stationary, backwards; //direction of fall
+ 
+ if (degrees >=0 && degrees<=90){   //forwards
+     float intensity = degrees/4;
+     if (intensity >1) intensity =1;
+     forwards = intensity;
+ } else forwards =0;
+ 
+ if (degrees >=-4 && degrees <=4){    //stationary
+    float intensity = (degrees/4);
+    if (intensity <0) intensity = intensity *-1; //make value positive
+    if (intensity =0) intensity =1;
+    else intensity = 1-intensity; //invert value
+    stationary = intensity;
+ } else stationary =0;
+ 
+ if (degrees >=-90 && degrees <=-0){   //backwards
+    float intensity = (degrees/4)*-1;
+    if (intensity >1) intensity =1;
+    backwards = intensity;
+ }  else backwards =0;
+ 
+ 
+ //get fuzzy output
+ float M_forwards, M_OFF, M_backwards;
+ 
+ M_forwards = 100*forwards;
+ M_OFF = 100 * stationary;
+ M_backwards =-100 * backwards;
+ 
+ // Display Value of angle for debugging
+        TextOut(0, LCD_LINE4, "Forwards:     ");
+        NumOut(6*9, LCD_LINE4, M_forwards);
+        
+// Display Value of angle for debugging
+        TextOut(0, LCD_LINE5, "Stationary:     ");
+        NumOut(6*11, LCD_LINE5, M_OFF);
+        
+// Display Value of angle for debugging
+        TextOut(0, LCD_LINE6, "Backwards:     ");
+        NumOut(6*10, LCD_LINE6, M_backwards);
+ 
+ 
+ //de-fuzzification
+ 
+ int output;
+
+ M_OFF = 1 - (M_OFF /100);
+ output = (M_forwards + M_backwards * M_OFF);
+ 
+ 
+ 
+ //return defuzzified value
+ return output;
+}
+
+
+task main()
+{
+  angle =0;
+  SetSensorHTGyro(GYRO);
+  SetSensorType(LIGHT, IN_TYPE_LIGHT_ACTIVE);
+
+  // 8 seconds delay to get robot upright
+  Wait(8000);
+  // 2 second warning
+  PlayTone(TONE_B7, 5);
+  Wait(100);
+  PlayTone(TONE_B7, 5);
+  Wait(2000);
+  
+  // 1 second warning
+  
+  //calibrate
+  offset = getOffset();
+  divisor= (1000/(UpdatePeriod+2));
+
+  while (true){
+        int power;
+        power =FuzzyLogic(offset);
+        
+        // Display Value of angle for debugging
+        TextOut(0, LCD_LINE7, "Power:     ");
+        NumOut(6*6, LCD_LINE7, power);
+        
+         OnFwd(OUT_BC, power);    //set motors
+
+        
+        Wait(UpdatePeriod);
+        
+    }
+
+}
+
+
